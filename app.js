@@ -2,6 +2,7 @@
 const { URL, URLSearchParams } = require('url')
 const httpAgent = require('socks5-http-client/lib/Agent')
 const httpsAgent = require('socks5-https-client/lib/Agent')
+const lodash = require('lodash')
 // const config = require('./config')
 
 const node = {
@@ -257,6 +258,10 @@ const asyncMapLimit = (imgs, id) => {
     })
 }
 
+const uniqArray = arr => {
+    return lodash.uniq(arr)
+}
+
 const init = async () => {
     if (!options.hasList) {
         const listLength = lists.length
@@ -300,7 +305,8 @@ const init = async () => {
                 retry++
             }
         }
-        const imgArr = await parseDetail(detailHtml)
+        let imgArr = await parseDetail(detailHtml)
+        imgArr = uniqArray(imgArr)
         const length = imgArr.length
         // let task = []
         // let num = 1
