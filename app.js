@@ -1,17 +1,18 @@
 'use strict'
 const { URL, URLSearchParams } = require('url')
-const httpAgent = require('socks5-http-client/lib/Agent')
-const httpsAgent = require('socks5-https-client/lib/Agent')
+const SocksAgent = require('axios-socks5-agent')
 const lodash = require('lodash')
+const iconv = require('iconv-lite')
 // const config = require('./config')
 
+const { httpAgent, httpsAgent } = new SocksAgent({ agentOptions: { keepAlive: true }, port: 2080 })
+
 const node = {
+    axios: require('axios'),
     cheerio: require('cheerio'),
     fs: require('fs'),
     mkdirp: require('mkdirp'),
     path: require('path'),
-    request: require('request'),
-    rp: require('request-promise'),
     url: require('url'),
     trim: require('locutus/php/strings/trim'),
     strip_tags: require('locutus/php/strings/strip_tags'),
@@ -33,19 +34,19 @@ const lists = [
         maxPage: 1
     },
     {
-        type: 'Y',
-        xcode: '024',
-        maxPage: 39
-    },
-    {
         type: 'P',
         xcode: '029',
-        maxPage: 3
+        maxPage: 4
+    },
+    {
+        type: 'Y',
+        xcode: '024',
+        maxPage: 41
     },
     {
         type: 'O',
         xcode: '019',
-        maxPage: 6
+        maxPage: 7
     },
     {
         type: 'X',
@@ -55,49 +56,48 @@ const lists = [
     {
         type: 'O',
         xcode: '021',
-        maxPage: 5
+        maxPage: 7
     },
     {
         type: 'X',
         xcode: '025',
-        maxPage: 8
+        maxPage: 7
     },
     {
         type: 'Y',
         xcode: '014',
-        maxPage: 2
+        maxPage: 1
     },
     {
         type: 'P',
         xcode: '034',
-        maxPage: 2
+        maxPage: 3
     }
 ]
 
 const options = {
-    saveTo: './images',
+    saveTo: node.path.join(__dirname, 'images'),
     downLimit: 5,
-    start: 1576, //1575
+    start: 2130, //2131 (最后一条数据行号 - 1)
     hasList: true
 }
 
 const getList = async url => {
     console.log('开始下载列表页面：%s'.blue, url)
     return node
-        .rp({
+        .axios({
             url,
-            agentClass: url.indexOf('https://') === 0 ? httpsAgent : httpAgent,
-            agentOptions: {
-                socksHost: '127.0.0.1',
-                socksPort: 2080
-            },
-            strictSSL: url.indexOf('https://') === 0
+            httpAgent,
+            httpsAgent,
+            responseType: 'arraybuffer'
         })
-        .then(body => {
+        .then(({ data }) => {
             console.log('下载列表页面成功：%s'.green, url)
+            const str = iconv.decode(Buffer.from(data), 'EUC-KR')
+            const html = iconv.encode(str, 'utf8').toString()
             return {
                 url,
-                html: body
+                html
             }
         })
         .catch(function (err) {
@@ -144,7 +144,7 @@ const makeDir = async item => {
             console.log('目录：%s 已经存在'.red, dir)
             resolve(item)
         } else {
-            node.mkdirp(dir, function () {
+            node.mkdirp(dir).then(() => {
                 console.log('目录：%s 创建成功'.green, dir)
                 resolve(item)
             })
@@ -155,21 +155,20 @@ const makeDir = async item => {
 const getDetail = async url => {
     console.log('开始下载详情页面：%s'.blue, url)
     return node
-        .rp({
+        .axios({
             url,
             timeout: 10000,
-            agentClass: url.indexOf('https://') === 0 ? httpsAgent : httpAgent,
-            agentOptions: {
-                socksHost: '127.0.0.1',
-                socksPort: 2080
-            },
-            strictSSL: url.indexOf('https://') === 0
+            httpAgent,
+            httpsAgent,
+            responseType: 'arraybuffer'
         })
-        .then(body => {
+        .then(({ data }) => {
             console.log('下载详情页面成功：%s'.green, url)
+            const str = iconv.decode(Buffer.from(data), 'EUC-KR')
+            const html = iconv.encode(str, 'utf8').toString()
             return {
                 url,
-                html: body
+                html
             }
         })
         .catch(async function () {
@@ -193,7 +192,7 @@ const parseDetail = payload => {
 
 const downImage = (imgsrc, dir) => {
     return new Promise((resolve, reject) => {
-        const url = node.url.parse(imgsrc)
+        const url = new node.url.URL(imgsrc)
         const fileName = node.path.basename(url.pathname)
         const toPath = node.path.join(options.saveTo, dir, fileName)
         console.log('开始下载图片：%s，保存到：%s'.blue, fileName, dir)
@@ -201,32 +200,30 @@ const downImage = (imgsrc, dir) => {
             console.log('图片已经存在：%s'.yellow, imgsrc)
             resolve()
         } else {
-            node.request
-                .get(
-                    encodeURI(imgsrc),
-                    {
-                        timeout: 20000
-                    },
-                    function (err) {
-                        if (err) {
-                            console.log('图片下载失败, code = ' + err.code + '：%s'.red, imgsrc)
-                            resolve(imgsrc + ' => 0')
-                        }
-                    }
-                )
-                .pipe(node.fs.createWriteStream(toPath))
-                .on('close', () => {
-                    console.log('图片下载成功：%s'.green, imgsrc)
-                    const stat = node.fs.statSync(toPath)
-                    if (stat.size < 20 * 1024) {
-                        node.fs.unlinkSync(toPath)
-                        console.log('图片删除成功：图片大小 = %s'.green, stat.size)
-                    }
-                    resolve()
+            node.axios({
+                method: 'get',
+                url: imgsrc,
+                responseType: 'stream'
+            })
+                .then(({ data }) => {
+                    data.pipe(node.fs.createWriteStream(toPath))
+                        .on('close', () => {
+                            console.log('图片下载成功：%s'.green, imgsrc)
+                            const stat = node.fs.statSync(toPath)
+                            if (stat.size < 20 * 1024) {
+                                node.fs.unlinkSync(toPath)
+                                console.log('图片删除成功：图片大小 = %s'.green, stat.size)
+                            }
+                            resolve()
+                        })
+                        .on('error', err => {
+                            console.log('图片下载失败：%s'.red, imgsrc)
+                            reject(err)
+                        })
                 })
-                .on('error', err => {
-                    console.log('图片下载失败：%s'.red, imgsrc)
-                    reject(err)
+                .catch(error => {
+                    console.log('图片下载失败, code = ' + error.code + '：%s'.error, imgsrc)
+                    resolve(imgsrc + ' => 0')
                 })
         }
     })
