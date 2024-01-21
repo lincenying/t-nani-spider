@@ -6,9 +6,6 @@ import { Buffer } from 'node:buffer'
 // import SocksAgent from 'axios-socks5-agent'
 import lodash from 'lodash'
 import iconv from 'iconv-lite'
-
-// const config = require('./config')
-
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { mkdirp } from 'mkdirp'
